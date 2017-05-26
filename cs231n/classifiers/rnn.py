@@ -143,14 +143,17 @@ class CaptioningRNN(object):
         if self.cell_type == 'rnn':
             h, cache_rnn = rnn_forward(x, h0, Wx, Wh, b)
         elif self.cell_type == 'lstm':
-            pass
+            h, cache_lstm = lstm_forward(x, h0, Wx, Wh, b)
         scores, cache_aff = temporal_affine_forward(h, W_vocab, b_vocab)
         loss, dscores = temporal_softmax_loss(scores, captions_out, mask)
         
         
         # backward
         dh, dW_v, db_v = temporal_affine_backward(dscores, cache_aff)
-        dx, dh0, dWx, dWh, db = rnn_backward(dh, cache_rnn)
+        if self.cell_type == 'rnn':
+            dx, dh0, dWx, dWh, db = rnn_backward(dh, cache_rnn)
+        elif self.cell_type == 'lstm':
+            dx, dh0, dWx, dWh, db = lstm_backward(dh, cache_lstm)
         grads['W_vocab'] = dW_v
         grads['b_vocab'] = db_v
         grads['Wx'] = dWx
@@ -220,24 +223,22 @@ class CaptioningRNN(object):
         # functions; you'll need to call rnn_step_forward or lstm_step_forward in #
         # a loop.                                                                 #
         ###########################################################################
-        prev_h = features.dot(W_proj) + b_proj # initial hidden state
+        curr_h = features.dot(W_proj) + b_proj # initial hidden state
+        curr_c = 0
         curr_words = self._start * np.ones(N, dtype=np.int32) # input words
         # step through sequence
         for t in range(max_length):
             x, _ = word_embedding_forward(curr_words, W_embed) 
             if self.cell_type == 'rnn':
-                next_h, _ = rnn_step_forward(x, prev_h, Wx, Wh, b)
+                curr_h, _ = rnn_step_forward(x, curr_h, Wx, Wh, b)
             elif self.cell_type == 'lstm':  
-                pass
-            scores, _ = temporal_affine_forward(next_h[:, np.newaxis, :], 
+                curr_h, curr_c, _ = lstm_step_forward(x, curr_h, curr_c, Wx, Wh, b)
+            scores, _ = temporal_affine_forward(curr_h[:, np.newaxis, :], 
                                                 W_vocab, b_vocab)
            
             # choose word with max score
             curr_words = np.argmax(np.squeeze(scores), axis=1) 
             captions[:,t] = curr_words
-            
-            # update for next step
-            prev_h = next_h
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
